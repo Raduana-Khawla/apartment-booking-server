@@ -1,6 +1,5 @@
 const express = require("express");
 const app = express();
-// const bodyParser = require("body-parser");
 const cors = require("cors");
 require("dotenv").config();
 const MongoClient = require("mongodb").MongoClient;
@@ -23,6 +22,18 @@ const client = new MongoClient(uri, {
 app.get("/", (req, res) => {
   res.json("Hello World!");
 });
+
+async function verifyToken(req, res, next) {
+  if (req.headers?.authorization?.startsWith("Bearer ")) {
+    const token = req.headers.authorization.split(" ")[1];
+
+    try {
+      const decodedUser = await admin.auth().verifyIdToken(token);
+      req.decodedEmail = decodedUser.email;
+    } catch {}
+  }
+  next();
+}
 
 async function run() {
   try {
@@ -91,38 +102,64 @@ async function run() {
         const result = await reviewCollection.insertOne(req.body);
         res.json(result);
       });
+      app.get("/users/:email", async (req, res) => {
+        const email = req.params.email;
+        const query = { email: email };
+        const user = await usersCollection.findOne(query);
+        let isAdmin = false;
+        if (user?.role === "admin") {
+          isAdmin = true;
+        }
+        res.json({ admin: isAdmin });
+      });
+
+      app.post("/users", async (req, res) => {
+        const user = req.body;
+        const result = await usersCollection.insertOne(user);
+        console.log(result);
+        res.json(result);
+      });
+
+      app.put("/users", async (req, res) => {
+        const user = req.body;
+        console.log("put", user);
+        const filter = { email: user.email };
+        const options = { upsert: true };
+        const updateDoc = { $set: user };
+        const result = await usersCollection.updateOne(
+          filter,
+          updateDoc,
+          options
+        );
+        res.json(result);
+      });
+
+      app.put("/users/admin", verifyToken, async (req, res) => {
+        const user = req.body;
+        const requester = req.decodedEmail;
+        if (requester) {
+          const requesterAccount = await usersCollection.findOne({
+            email: requester,
+          });
+          if (requesterAccount.role === "admin") {
+            const filter = { email: user.email };
+            const updateDoc = { $set: { role: "admin" } };
+            const result = await usersCollection.updateOne(filter, updateDoc);
+            res.json(result);
+          }
+        } else {
+          res
+            .status(403)
+            .json({ message: "you do not have access to make admin" });
+        }
+      });
       //get review
       app.get("/addReview", async (req, res) => {
         const result = await reviewCollection.find({}).toArray();
         res.json(result);
       });
-
-      app.post("/addUserInfo", async (req, res) => {
-        console.log("req.body");
-        const result = await usersCollection.insertOne(req.body);
-        res.json(result);
-      });
       //  make admin
 
-      app.put("/makeAdmin", async (req, res) => {
-        const filter = { email: req.body.email };
-        const result = await usersCollection.find(filter).toArray();
-        if (result) {
-          const documents = await usersCollection.updateOne(filter, {
-            $set: { role: "admin" },
-          });
-          console.log(documents);
-        }
-      });
-
-      // check admin or not
-      app.get("/checkAdmin/:email", async (req, res) => {
-        const result = await usersCollection
-          .find({ email: req.params.email })
-          .toArray();
-
-        res.json(result);
-      });
       //order delete
       app.delete("/deleteOrder/:id", async (req, res) => {
         const result = await ordersCollection.deleteOne({
