@@ -17,8 +17,6 @@ const client = new MongoClient(uri, {
   useUnifiedTopology: true,
 });
 
-// app.use(bodyParser.urlencoded({ extended: true }));
-
 app.get("/", (req, res) => {
   res.json("Hello World!");
 });
